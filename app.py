@@ -14,6 +14,8 @@ import numpy as np
 import pickle
 import matplotlib.pyplot as plt
 import tensorflow as tf
+from tensorflow.nn import conv2d, avg_pool2d, dropout, relu, softmax_cross_entropy_with_logits_v2
+from tensorflow.layers import flatten
 
 
 classes = {
@@ -63,26 +65,29 @@ classes = {
 
 }
 
+IMG_SIZE = 32
 
-def load_data(data_dir, img_size=30):
+
+def load_data(data_dir):
     data = []
     labels = []
     data_dirs = os.listdir(data_dir)
     for im_dir in data_dirs:
         for im in os.listdir(os.path.join(data_dir, im_dir)):
             image = Image.open(os.path.join(data_dir, im_dir, im))
-            data.append(np.array(image.resize((img_size, img_size), PIL.Image.ANTIALIAS)))
+            data.append(np.array(image.resize((IMG_SIZE, IMG_SIZE), PIL.Image.ANTIALIAS)))
             labels.append(im_dir)
 
     data = np.array(data)
+    labels = np.array(labels)
     return data, labels
 
-def load_user_data(data_dir, img_size=30):
+def load_user_data(data_dir):
     data = []
     data_dirs = os.listdir(data_dir)
     for im in data_dirs:
         image = Image.open(os.path.join(data_dir, im))
-        data.append(np.array(image.resize((img_size, img_size), PIL.Image.ANTIALIAS)))
+        data.append(np.array(image.resize((IMG_SIZE, IMG_SIZE), PIL.Image.ANTIALIAS)))
 
     data = np.array(data)
     return data
@@ -95,8 +100,7 @@ def load_sk_model(model_path):
     return model
 
 def train_logistic_model(data_dir):
-    img_size = 50
-    train_data, y_train = load_data(data_dir, img_size)
+    train_data, y_train = load_data(data_dir)
     X = train_data.reshape(train_data.shape[0], -1)
     X_train = X / 255
     model = LogisticRegression(verbose=2)
@@ -111,8 +115,7 @@ def train_logistic_model(data_dir):
         pickle.dump(model, f)
 
 def test_logistic_model(data_dir):
-    img_size = 50
-    test_data, y_test = load_data(data_dir, img_size)
+    test_data, y_test = load_data(data_dir)
     X = test_data.reshape(test_data.shape[0], -1)
     X_test = X / 255
 
@@ -123,7 +126,7 @@ def test_logistic_model(data_dir):
 
 def infer_logistic_model(data_dir):
     model = load_sk_model("models/model1/saved/model1.pkl")
-    data = load_user_data(data_dir, 50)
+    data = load_user_data(data_dir)
     X_user = data.reshape(data.shape[0], -1)
     X = X_user / 255
 
@@ -137,20 +140,19 @@ def infer_logistic_model(data_dir):
     plt.show()
 
 def train_tensorflow_model(data_dir):
-    img_size = 50
     labels = np.array(list(classes.keys())).reshape(len(classes), 1)
     learning_rate = 0.01
     num_iterations = 1000
 
-    X_train, y_train = load_data(data_dir, img_size)
+    X_train, y_train = load_data(data_dir)
     X_train = X_train / 255
     encoder = OneHotEncoder(sparse=False)
     encoder.fit(labels)
     y_train = encoder.transform(np.array(y_train).reshape(len(y_train), 1))
 
-    X = tf.placeholder(tf.float32, [None, 3 * img_size ** 2], name="X")
+    X = tf.placeholder(tf.float32, [None, 3 * IMG_SIZE ** 2], name="X")
     b = tf.Variable(tf.zeros([len(labels)]))
-    W = tf.Variable(tf.random_normal([3 * img_size ** 2, len(labels)]))
+    W = tf.Variable(tf.random_normal([3 * IMG_SIZE ** 2, len(labels)]))
 
     y = tf.add(tf.matmul(X, W), b, name="y")
     y_true = tf.placeholder(tf.float32, [None, len(labels)], name="y_true")
@@ -187,7 +189,7 @@ def test_tensorflow_model(data_dir):
     labels = np.array(list(classes.keys())).reshape(len(classes), 1)
     encoder = OneHotEncoder(sparse=False)
     encoder.fit(labels)
-    X_test, y_test = load_data(data_dir, img_size)
+    X_test, y_test = load_data(data_dir)
     X_test = X_test / 255
     y_test = encoder.transform(np.array(y_test).reshape(len(y_test), 1))
 
@@ -206,11 +208,10 @@ def test_tensorflow_model(data_dir):
         click.echo(f"Accuracy on test set: {acc.eval({X: X_test.reshape(X_test.shape[0], -1), y_true: y_test})}")
 
 def infer_tensorflow_model(data_dir):
-    img_size = 50
     labels = np.array(list(classes.keys())).reshape(len(classes), 1)
     encoder = OneHotEncoder(sparse=False)
     encoder.fit(labels)
-    data = load_user_data(data_dir, img_size)
+    data = load_user_data(data_dir)
     data = data / 255
 
     with tf.Session() as sess:
@@ -231,6 +232,89 @@ def infer_tensorflow_model(data_dir):
     
     plt.show()
 
+def conv_layer(x, num_inputs, num_filters, filter_shape, name):
+    w = tf.Variable(tf.truncated_normal(shape=(filter_shape, filter_shape, num_inputs, num_filters), mean=0, stddev=0.1))
+    b = tf.Variable(tf.zeros(num_filters))
+
+    return tf.add(conv2d(x, w, strides=1, padding='VALID'), b, name=name)
+
+def fully_connected(x, num_inputs,num_outputs, name):
+    w = tf.Variable(tf.truncated_normal(shape=(num_inputs, num_outputs), mean=0, stddev=0.1))
+    b = tf.Variable(tf.zeros(num_outputs))
+
+    return tf.add(tf.matmul(x, w), b, name=name)
+
+def train_lenet_model(data_dir):
+    labels = np.array(list(classes.keys())).reshape(len(classes), 1)
+    learning_rate = 0.01
+    X_train, y_train = load_data("images/train")
+    X_train =  X_train / 255
+    encoder = OneHotEncoder(sparse=False)
+    encoder.fit(labels)
+    y_train = encoder.transform(np.array(y_train).reshape(len(y_train), 1))
+
+    X = tf.placeholder(tf.float32, shape=(None, 32, 32, 3), name="X")
+    y_true = tf.placeholder(tf.float32, shape=(None, len(labels)), name="y_true")
+
+    C1 = conv_layer(X, 3, 6, 5, "C1")
+    S2 = avg_pool2d(C1, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding="VALID", name="S2")
+    S2_drop = dropout(S2, 0.8)
+    C3 = conv_layer(S2_drop, 6 ,16, 5, name="C3")
+    S4 = avg_pool2d(C3, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding="VALID", name="S4")
+    S4_flatten = flatten(S4)
+    FC1 = fully_connected(S4_flatten, 400, 120, "FC1")
+    FC1 = relu(FC1)
+    FC2 = fully_connected(FC1, 120, 84, "FC2")
+    FC2 = relu(FC2)
+    y_pred = fully_connected(FC2, 84, len(labels), "y")
+
+    loss = tf.reduce_mean(softmax_cross_entropy_with_logits_v2(labels=y_true, logits=y_pred))
+    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
+    train = optimizer.minimize(loss)
+
+    result = tf.equal(tf.argmax(y_pred, 1), tf.argmax(y_true, 1))
+    acc = tf.reduce_mean(tf.cast(result, tf.float32))
+
+    epochs = 100
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+
+        print("Starting training of LeNet model", end="\n")
+        for epoch in range(epochs):
+            opt, accuracy, cur_loss = sess.run([train, acc, loss], feed_dict={X: X_train, y_true: y_train})
+            if epoch % 10 == 0:
+                print(f"EPOCH: {epoch}")
+                print(f"Accuracy: {accuracy}")
+                print(f"Loss: {cur_loss}", end="\n")
+                print("====================================")
+            
+        saver = tf.train.Saver()
+        save_path = "models/model3/saved/model3"
+        saver.save(sess, save_path) 
+
+def test_lenet_model(data_dir):
+
+    labels = np.array(list(classes.keys())).reshape(len(classes), 1)
+    encoder = OneHotEncoder(sparse=False)
+    encoder.fit(labels)
+    X_test, y_test = load_data(data_dir)
+    X_test = X_test / 255
+    y_test = encoder.transform(np.array(y_test).reshape(len(y_test), 1))
+
+    with tf.Session() as sess:
+        saver = tf.train.import_meta_graph("models/model3/saved/model3.meta")
+        saver.restore(sess, tf.train.latest_checkpoint("models/model3/saved/"))
+
+        graph = tf.get_default_graph()
+
+        y_true = graph.get_tensor_by_name("y_true:0")
+        X = graph.get_tensor_by_name("X:0")
+        y = graph.get_tensor_by_name("y:0")
+        preds = tf.nn.softmax(y)
+        correct_pred = tf.equal(tf.argmax(preds, 1), tf.argmax(y_true, 1))
+        acc = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+        click.echo(f"Accuracy on test set: {acc.eval({X: X_test, y_true: y_test})}")
 
 @click.group()
 def cli():
@@ -246,6 +330,8 @@ def train(m, d):
         train_logistic_model(d)
     elif m == "tensorflow":
         train_tensorflow_model(d)
+    elif m == "lenet":
+        train_lenet_model(d)
 
 @cli.command()
 @click.option("-m", default="logistic", help="Model to train")
@@ -256,6 +342,8 @@ def test(m, d):
         test_logistic_model(d)
     elif m == "tensorflow":
         test_tensorflow_model(d)
+    elif m == "lenet":
+        test_lenet_model(d)
 
 
 @cli.command()
@@ -271,6 +359,9 @@ def infer(m, d):
 @cli.command()
 def download():
     data_url = "https://sid.erda.dk/public/archives/ff17dc924eba88d5d01a807357d6614c/FullIJCNN2013.zip"
+
+    if not os.path.exists("image"):
+        os.mkdir("image")
 
     if not os.path.exists("image/data.zip"):
         r = requests.get(data_url, stream=True)
