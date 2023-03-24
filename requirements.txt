@@ -2,7 +2,7 @@ matplotlib==2.2.2
 requests==2.23.0
 clint==0.5.1
 numpy==1.17.4
-tensorflow==1.15.2
+tensorflow==2.11.1
 click==7.1.1
 Pillow==7.0.0
 scikit_learn==0.22.2.post1
