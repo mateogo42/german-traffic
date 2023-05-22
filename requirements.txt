@@ -1,5 +1,5 @@
 matplotlib==2.2.2
-requests==2.23.0
+requests==2.31.0
 clint==0.5.1
 numpy==1.17.4
 tensorflow==1.15.2
